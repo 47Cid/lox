@@ -1,0 +1,22 @@
+Computed Gotos
+Run Length Encoding
+Long Constants
+
+Implicit string conversion
+UTF-8 strings
+
+MurmerHash3 
+
+PopN
+Ternary Op
+switch case 
+break op
+Arity check to native fucntions
+Register ip
+Anonymous functions
+
+generational garbage collection
+Optimize white and black marking
+Change clox to only wrap functions in ObjClosures that need upvalues
+
+Implement maps
