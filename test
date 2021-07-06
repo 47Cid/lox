@@ -1,9 +1,0 @@
-func abc(){
-
-}
-
-abc();
-abc();
-abc();
-abc();
-abc();
