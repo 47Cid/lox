@@ -1,4 +1,3 @@
-Computed Gotos
 Long Constants
 
 UTF-8 strings
