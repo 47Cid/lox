@@ -845,6 +845,7 @@ static InterpretResult run() {
                 defineMethod(READ_STRING());
                 break;
         }
+
 #endif
     }
 
