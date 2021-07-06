@@ -34,8 +34,7 @@ static void runtimeError(const char* format, ...) {
         CallFrame* frame = &vm.frames[i];
         ObjFunction* function = frame->closure->function;
         size_t instruction = frame->ip - function->chunk.code - 1;
-        fprintf(stderr, "[line %d] in ",
-                function->chunk.lines[instruction]);
+        fprintf(stderr, "[line %d] in ", getLine(&function->chunk, instruction));
         if (function->name == NULL) {
             fprintf(stderr, "script\n");
         } else {
@@ -234,9 +233,48 @@ static bool isFalsey(Value value) {
     return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
-static void concatenate() {
-    ObjString* b = AS_STRING(peek(0));
-    ObjString* a = AS_STRING(peek(1));
+static int concatenate() {
+    ObjString* b;
+    ObjString* a;
+
+    bool implicitConversion = false;
+
+    if (IS_STRING(peek(0))) {
+        b = AS_STRING(peek(0));
+    } else if (IS_NUMBER(peek(0))) {
+        implicitConversion = true;
+        char buffer[50];
+        sprintf(buffer, "%g", AS_NUMBER(peek(0)));
+        int length = strlen(buffer);
+        b = copyString(buffer, length);
+        push(OBJ_VAL(b));
+    } else {
+        runtimeError("Invalid String Addition");
+        return INTERPRET_RUNTIME_ERROR;
+    }
+
+    if (implicitConversion) {
+        if (IS_STRING(peek(2))) {
+            a = AS_STRING(peek(2));
+        } else {
+            runtimeError("Invalid String Addition");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+    } else {
+        if (IS_STRING(peek(1))) {
+            a = AS_STRING(peek(1));
+        } else if (IS_NUMBER(peek(1))) {
+            implicitConversion = true;
+            char buffer[50];
+            sprintf(buffer, "%g", AS_NUMBER(peek(1)));
+            int length = strlen(buffer);
+            a = copyString(buffer, length);
+            push(OBJ_VAL(a));
+        } else {
+            runtimeError("Invalid String Addition");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+    }
 
     int length = a->length + b->length;
     char* chars = ALLOCATE(char, length + 1);
@@ -245,9 +283,12 @@ static void concatenate() {
     chars[length] = '\0';
 
     ObjString* result = takeString(chars, length);
+    if (implicitConversion)
+        pop();
     pop();
     pop();
     push(OBJ_VAL(result));
+    return 0;
 }
 
 static InterpretResult run() {
@@ -409,14 +450,14 @@ static InterpretResult run() {
                 push(NUMBER_VAL(-AS_NUMBER(pop())));
                 break;
             case OP_ADD: {
-                if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+                if (IS_STRING(peek(0)) || IS_STRING(peek(1))) {
                     concatenate();
                 } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
                     double b = AS_NUMBER(pop());
                     double a = AS_NUMBER(pop());
                     push(NUMBER_VAL(a + b));
                 } else {
-                    runtimeError("Operands must be two numbers or two strings.");
+                    runtimeError("Operands must be numbers or strings.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;

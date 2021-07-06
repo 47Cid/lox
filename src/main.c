@@ -1,3 +1,5 @@
+#include <editline/history.h>
+#include <editline/readline.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,16 +10,22 @@
 #include "vm.h"
 
 static void repl() {
-    char line[1024];
+/*     char line[1024]; */
     for (;;) {
-        printf("> ");
+/*         printf("> ");
 
         if (!fgets(line, sizeof(line), stdin)) {
             printf("\n");
             break;
-        }
+        } */
 
-        interpret(line);
+        char* input = readline("> ");
+
+        add_history(input);
+
+        interpret(input);
+
+        free(input);
     }
 }
 

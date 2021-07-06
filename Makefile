@@ -4,8 +4,8 @@
 
 # Compiler settings - Can be customized.
 CC = gcc
-CXXFLAGS = -std=c11 -Wall -g
-LDFLAGS = 
+CXXFLAGS = -std=c11 -Wall  -g
+LDFLAGS = -ledit
 
 # Makefile settings - Can be customized.
 APPNAME = clox

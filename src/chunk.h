@@ -49,7 +49,7 @@ typedef struct {
     int lineCount;
     int lineCapacity;
     int *lines;
-    
+
     ValueArray constants;
 } Chunk;
 
