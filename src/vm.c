@@ -315,6 +315,48 @@ static InterpretResult run() {
         push(valueType(a op b));                          \
     } while (false)
 
+#ifdef COMPUTED_GOTO
+    static void* dispatch_table[] = {
+        &&DO_CONSTANT,
+        &&DO_NIL,
+        &&DO_TRUE,
+        &&DO_FALSE,
+        &&DO_GET_PROPERTY,
+        &&DO_SET_PROPERTY,
+        &&DO_EQUAL,
+        &&DO_POP,
+        &&DO_GET_UPVALUE,
+        &&DO_SET_UPVALUE,
+        &&DO_GET_LOCAL,
+        &&DO_SET_LOCAL,
+        &&DO_SET_GLOBAL,
+        &&DO_GET_GLOBAL,
+        &&DO_DEFINE_GLOBAL,
+        &&DO_GREATER,
+        &&DO_LESS,
+        &&DO_ADD,
+        &&DO_SUBTRACT,
+        &&DO_MULTIPLY,
+        &&DO_DIVIDE,
+        &&DO_NOT,
+        &&DO_NEGATE,
+        &&DO_PRINT,
+        &&DO_JUMP,
+        &&DO_JUMP_IF_FALSE,
+        &&DO_LOOP,
+        &&DO_CALL,
+        &&DO_INVOKE,
+        &&DO_CLOSURE,
+        &&DO_CLOSE_UPVALUE,
+        &&DO_RETURN,
+        &&DO_CLASS,
+        &&DO_METHOD};
+#define DISPATCH() goto* dispatch_table[READ_BYTE()]
+
+    DISPATCH();
+
+#endif
+
     for (;;) {
 #ifdef DEBUG_TRACE_EXECUTION
 
@@ -329,7 +371,261 @@ static InterpretResult run() {
                                (int)(frame->ip - frame->closure->function->chunk.code));
 #endif
 
+#ifdef COMPUTED_GOTO
+
+    DO_CONSTANT : {
+        Value constant = READ_CONSTANT();
+        push(constant);
+    }
+        DISPATCH();
+
+    DO_NIL:
+        push(NIL_VAL);
+        DISPATCH();
+
+    DO_TRUE:
+        push(BOOL_VAL(true));
+        DISPATCH();
+
+    DO_FALSE:
+        push(BOOL_VAL(false));
+        DISPATCH();
+
+    DO_GET_PROPERTY : {
+        if (!IS_INSTANCE(peek(0))) {
+            runtimeError("Only instances have properties.");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+
+        ObjInstance* instance = AS_INSTANCE(peek(0));
+        ObjString* name = READ_STRING();
+
+        Value value;
+        if (tableGet(&instance->fields, name, &value)) {
+            pop();  // Instance.
+            push(value);
+            DISPATCH();
+        }
+
+        if (!bindMethod(instance->klass, name)) {
+            return INTERPRET_RUNTIME_ERROR;
+        }
+    }
+        DISPATCH();
+
+    DO_SET_PROPERTY : {
+        if (!IS_INSTANCE(peek(1))) {
+            runtimeError("Only instances have fields.");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+
+        ObjInstance* instance = AS_INSTANCE(peek(1));
+        tableSet(&instance->fields, READ_STRING(), peek(0));
+        Value value = pop();
+        pop();
+        push(value);
+    }
+        DISPATCH();
+
+    DO_EQUAL : {
+        Value b = pop();
+        Value a = pop();
+        push(BOOL_VAL(valuesEqual(a, b)));
+    }
+        DISPATCH();
+
+    DO_POP:
+        pop();
+        DISPATCH();
+
+    DO_GET_UPVALUE : {
+        uint8_t slot = READ_BYTE();
+        push(*frame->closure->upvalues[slot]->location);
+    }
+        DISPATCH();
+
+    DO_SET_UPVALUE : {
+        uint8_t slot = READ_BYTE();
+        *frame->closure->upvalues[slot]->location = peek(0);
+    }
+        DISPATCH();
+
+    DO_GET_LOCAL : {
+        uint8_t slot = READ_BYTE();
+        push(frame->slots[slot]);
+    }
+        DISPATCH();
+
+    DO_SET_LOCAL : {
+        uint8_t slot = READ_BYTE();
+        frame->slots[slot] = peek(0);
+    }
+        DISPATCH();
+
+    DO_SET_GLOBAL : {
+        ObjString* name = READ_STRING();
+        if (tableSet(&vm.globals, name, peek(0))) {
+            tableDelete(&vm.globals, name);
+            runtimeError("Undefined variable '%s'.", name->chars);
+            return INTERPRET_RUNTIME_ERROR;
+        }
+    }
+        DISPATCH();
+
+    DO_GET_GLOBAL : {
+        ObjString* name = READ_STRING();
+        Value value;
+        if (!tableGet(&vm.globals, name, &value)) {
+            runtimeError("Undefined variable '%s'.", name->chars);
+            return INTERPRET_RUNTIME_ERROR;
+        }
+        push(value);
+    }
+        DISPATCH();
+
+    DO_DEFINE_GLOBAL : {
+        ObjString* name = READ_STRING();
+        tableSet(&vm.globals, name, peek(0));
+        pop();
+    }
+        DISPATCH();
+
+    DO_GREATER:
+        BINARY_OP(BOOL_VAL, >);
+        DISPATCH();
+
+    DO_LESS:
+        BINARY_OP(BOOL_VAL, <);
+        DISPATCH();
+
+    DO_ADD : {
+        if (IS_STRING(peek(0)) || IS_STRING(peek(1))) {
+            concatenate();
+        } else if (IS_NUMBER(peek(0)) && IS_NUMBER(peek(1))) {
+            double b = AS_NUMBER(pop());
+            double a = AS_NUMBER(pop());
+            push(NUMBER_VAL(a + b));
+        } else {
+            runtimeError("Operands must be numbers or strings.");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+    }
+        DISPATCH();
+
+    DO_SUBTRACT:
+        BINARY_OP(NUMBER_VAL, -);
+        DISPATCH();
+
+    DO_MULTIPLY:
+        BINARY_OP(NUMBER_VAL, *);
+        DISPATCH();
+
+    DO_DIVIDE:
+        BINARY_OP(NUMBER_VAL, /);
+        DISPATCH();
+
+    DO_NOT:
+        push(BOOL_VAL(isFalsey(pop())));
+        DISPATCH();
+
+    DO_NEGATE:
+        if (!IS_NUMBER(peek(0))) {
+            runtimeError("Operand must be a number");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+        push(NUMBER_VAL(-AS_NUMBER(pop())));
+        DISPATCH();
+
+    DO_PRINT:
+        printValue(pop());
+        printf("\n");
+        DISPATCH();
+
+    DO_JUMP : {
+        uint16_t offset = READ_SHORT();
+        frame->ip += offset;
+    }
+        DISPATCH();
+
+    DO_JUMP_IF_FALSE : {
+        uint16_t offset = READ_SHORT();
+        if (isFalsey(peek(0)))
+            frame->ip += offset;
+    }
+        DISPATCH();
+
+    DO_LOOP : {
+        uint16_t offset = READ_SHORT();
+        frame->ip -= offset;
+    }
+        DISPATCH();
+
+    DO_CALL : {
+        int argCount = READ_BYTE();
+        if (!callValue(peek(argCount), argCount)) {
+            return INTERPRET_RUNTIME_ERROR;
+        }
+        frame = &vm.frames[vm.frameCount - 1];
+    }
+        DISPATCH();
+
+    DO_INVOKE : {
+        ObjString* method = READ_STRING();
+        int argCount = READ_BYTE();
+        if (!invoke(method, argCount)) {
+            return INTERPRET_RUNTIME_ERROR;
+        }
+        frame = &vm.frames[vm.frameCount - 1];
+    }
+        DISPATCH();
+
+    DO_CLOSURE : {
+        ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
+        ObjClosure* closure = newClosure(function);
+        push(OBJ_VAL(closure));
+        for (int i = 0; i < closure->upvalueCount; i++) {
+            uint8_t isLocal = READ_BYTE();
+            uint8_t index = READ_BYTE();
+            if (isLocal) {
+                closure->upvalues[i] = captureUpvalue(frame->slots + index);
+            } else {
+                closure->upvalues[i] = frame->closure->upvalues[index];
+            }
+        }
+    }
+        DISPATCH();
+
+    DO_CLOSE_UPVALUE:
+        closeUpvalues(vm.stackTop - 1);
+        pop();
+        DISPATCH();
+
+    DO_RETURN : {
+        Value result = pop();
+        closeUpvalues(frame->slots);
+        vm.frameCount--;
+        if (vm.frameCount == 0) {
+            pop();
+            return INTERPRET_OK;
+        }
+
+        vm.stackTop = frame->slots;
+        push(result);
+        frame = &vm.frames[vm.frameCount - 1];
+    }
+        DISPATCH();
+
+    DO_CLASS:
+        push(OBJ_VAL(newClass(READ_STRING())));
+        DISPATCH();
+
+    DO_METHOD:
+        defineMethod(READ_STRING());
+        DISPATCH();
+
+#else
         uint8_t instruction;
+
         switch (instruction = READ_BYTE()) {
             case OP_CONSTANT: {
                 Value constant = READ_CONSTANT();
@@ -549,6 +845,7 @@ static InterpretResult run() {
                 defineMethod(READ_STRING());
                 break;
         }
+#endif
     }
 
 #undef READ_BYTE
