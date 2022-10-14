@@ -53,6 +53,7 @@ typedef struct {
 } Upvalue;
 
 typedef enum {
+    TYPE_ANON,
     TYPE_FUNCTION,
     TYPE_METHOD,
     TYPE_INITIALIZER,
@@ -240,8 +241,11 @@ static void initCompiler(Compiler* compiler, FunctionType type) {
     Local* local = &current->locals[current->localCount++];
 
     if (type != TYPE_SCRIPT) {
-        current->function->name = copyString(parser.previous.start,
-                                             parser.previous.length);
+        if (type == TYPE_ANON) {
+            current->function->name = copyString("anon", 4);
+        } else
+            current->function->name = copyString(parser.previous.start,
+                                                 parser.previous.length);
     }
 
     local->depth = 0;
@@ -360,8 +364,7 @@ static uint64_t parseVariable(const char* errorMessage) {
 
 static void markInitialized() {
     if (current->scopeDepth == 0) return;
-    current->locals[current->localCount - 1].depth =
-        current->scopeDepth;
+    current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
 static void defineVariable(uint8_t global) {
@@ -626,8 +629,13 @@ static ParseRule* getRule(TokenType type) {
     return &rules[type];
 }
 
+static void function(FunctionType type);
+
 static void expression() {
-    parsePrecedence(PREC_ASSIGNMENT);
+    if (match(TOKEN_FUN)) {
+        function(TYPE_ANON);
+    } else
+        parsePrecedence(PREC_ASSIGNMENT);
 }
 
 static void block() {
@@ -710,10 +718,14 @@ static void classDeclaration() {
 }
 
 static void funDeclaration() {
-    uint8_t global = parseVariable("Expect function name.");
-    markInitialized();
-    function(TYPE_FUNCTION);
-    defineVariable(global);
+    if (check(TOKEN_IDENTIFIER)) {
+        uint8_t global = parseVariable("Expect function name.");
+        markInitialized();
+        function(TYPE_FUNCTION);
+        defineVariable(global);
+    } else {
+        function(TYPE_ANON);
+    }
 }
 
 static void varDeclaration() {
@@ -721,6 +733,7 @@ static void varDeclaration() {
 
     if (match(TOKEN_EQUAL)) {
         expression();
+
     } else {
         emitByte(OP_NIL);
     }
@@ -813,7 +826,9 @@ static void returnStatement() {
         if (current->type == TYPE_INITIALIZER) {
             error("Can't return a value from an initializer.");
         }
+
         expression();
+
         consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
         emitByte(OP_RETURN);
     }
